@@ -1,0 +1,138 @@
+<script src="pvector.js"> </script>
+<script src="relax.js"> </script>
+<script src="constraints.js"> </script>
+<script src="halfedge.js"> </script>
+
+<script>
+
+// Converts from degrees to radians.
+Math.radians = function(degrees) {
+  return degrees * Math.PI / 180;
+};
+ 
+// Converts from radians to degrees.
+Math.degrees = function(radians) {
+  return radians * 180 / Math.PI;
+};
+
+function dump_hds (hds) {
+	console.log ("Halfedges", hds.halfedge);
+	console.log ("Vertices");
+	hds.allVertices(function (he,v) {
+		console.log ("Around Vertex "+he.vtx+"->"+v);
+		hds.vertexCirculator (function (vhe) {
+			console.log ("Halfedge", hds.index(vhe), "Face", vhe.fac);
+		}, he);
+	});
+	console.log ("Faces");
+	hds.allFaces (function (he) {
+		console.log ("Face "+he.fac);
+		hds.faceCirculator (function (fhe) {
+			console.log ("Halfedge",hds.index(fhe), "Vertex", fhe.vtx);
+		}, he);
+	});
+	console.log ("Outside Faces");
+	hds.allOutsideFaces (function (he) {
+		console.log ("Outside Face ",he.fac);
+		hds.faceCirculator (function (fhe) {
+			console.log ("Halfedge",hds.index(fhe), "Vertex", fhe.vtx);
+		}, he);
+	});
+	console.log ("Edges");
+	hds.allEdges (function (he,phe) {
+		console.log ("Edge "+he.vtx+" -> " +phe.vtx)
+	});
+}
+
+
+var v00 = new PVector (0,0,0);
+var v10 = new PVector (1,0,0);
+var v01 = new PVector (0,1,0);
+var v11 = new PVector (1,1,0);
+
+// Halfedge test
+var hds = new HalfedgeDS ([[0,1,3,2]], [v00,v10,v01,v11]);
+console.log (hds.halfedge);
+check_hds(hds);
+dump_hds(hds);
+var splitEdge1 = hds.findEdge(0,2);
+var splitEdge2 = hds.findEdge(3,1);
+console.log("Splitting face ", splitEdge1.fac, "between he", hds.index(splitEdge1), "and", hds.index(splitEdge2));
+var new_edge_h = hds.splitFace (splitEdge1, splitEdge2);
+console.log (hds.halfedge);
+check_hds(hds);
+dump_hds(hds);
+splitEdge1 = hds.findEdge (0,3);
+splitEdge2 = hds.findEdge (0,2);
+console.log("Splitting vertex ", splitEdge1.vtx, "between he", hds.index(splitEdge1), "and", hds.index(splitEdge2));
+var newvtx = new PVector (0.5, 0.5);
+new_edge_h = hds.splitVertex (splitEdge1, splitEdge2, newvtx);
+console.log (hds.halfedge);
+check_hds(hds);
+dump_hds(hds);
+
+var h = hds.findEdge (4,0);
+var g = hds.findEdge (2,3);
+console.log ("Splitting face", h.fac);
+hds.splitFace (h,g);
+check_hds(hds);
+
+h = hds.findEdge (4,3);
+g = hds.findEdge (1,0);
+console.log ("Splitting face", h.fac);
+hds.splitFace (h,g);
+check_hds(hds);
+dump_hds(hds);
+
+console.log ("Cutting edge 1");
+cutEdge (hds, hds.findEdge(3,4));
+check_hds(hds);
+dump_hds(hds);
+
+console.log ("Cutting edge 2");
+cutEdge (hds, hds.findEdge(4,0));
+check_hds(hds);
+dump_hds(hds);
+
+console.log ("Snipping vertex");
+snipVertex (hds, 4);
+check_hds(hds);
+dump_hds(hds);
+
+/*
+h = hds.findEdge(4,2);
+g = hds.halfedge[h.nxt];
+console.log ("Creating first new face ", h.fac);
+var newface_h = hds.splitFace (h,g);
+console.log ("New half edge", newface_h);
+check_hds(hds);
+
+
+
+h = hds.findEdge(4,1);
+g = hds.halfedge[h.nxt];
+console.log ("Creating second new face ", h.fac);
+var newface_g = hds.splitFace (h,g);
+console.log ("New half edge", newface_g);
+check_hds(hds);
+
+console.log ("splitting the vertex");
+newvtx = new PVector(0.4,0.6,0);
+var newvtx_h = hds.splitVertex(newface_h,newface_g,newvtx);
+console.log ("New half edge", newvtx_h);
+check_hds(hds);
+
+console.log ("joining the two new faces")
+hds.joinFace (hds.findEdge (4,5));
+check_hds(hds);
+*/
+
+
+// console.log ("Joining vertex", new_edge_h.vtx, "for halfedge", hds.index(new_edge_h));
+// hds.joinVertex (new_edge_h);
+// console.log (hds.halfedge);
+// console.log (hds.vertexh);
+// check_hds(hds);
+// dump_hds(hds);
+
+</script>

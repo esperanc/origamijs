@@ -1,0 +1,43 @@
+<script src="pvector.js"> </script>
+<script src="relax.js"> </script>
+<script src="constraints.js"> </script>
+<script src="halfedge.js"> </script>
+
+<script>
+
+// Converts from degrees to radians.
+Math.radians = function(degrees) {
+  return degrees * Math.PI / 180;
+};
+ 
+// Converts from radians to degrees.
+Math.degrees = function(radians) {
+  return radians * 180 / Math.PI;
+};
+
+
+var v00 = new PVector (0,0,0);
+var v10 = new PVector (1,0,0);
+var v01 = new PVector (0,1,0);
+var v11 = new PVector (1,1,0);
+
+// Constraint test
+console.log ("Folding");
+var c1 = new DihedralConstraint (v00,v11,v01,v10,Math.radians(90));
+for (var i = 0; i < 8; i++) {
+	console.log ("angle=", Math.degrees(c1.angle()));
+	console.log ("vtx= "+v00+","+v11+","+v01+","+v10);
+	console.log ("Discrepancy = "+c1.discrepancy());
+	c1.relax(0.5);
+}
+console.log ("Unfolding");
+c1 = new DihedralConstraint (v00,v11,v01,v10,Math.radians(0));
+for (var i = 0; i < 8; i++) {
+	console.log ("angle=", Math.degrees(c1.angle()));
+	console.log ("vtx= "+v00+","+v11+","+v01+","+v10);
+	console.log ("Discrepancy = "+c1.discrepancy());
+	c1.relax(0.5);
+}
+
+
+</script>
