@@ -150,13 +150,13 @@
 			// Performs one step of the relaxation process
 			//
 			function relaxOneStep () {
-				var n = 5;
+				var n = 10;
 				var lc = constraints[0], dc = constraints[1];
 				for (var k = 0; k < n; k++) {
-					var f = (k+1) / n;
+					var f = (k+1+n) / (n+n);
 					for (var i = 0; i < dc.length; i++) {
 						var c = dc[i];
-						c.relax(f);
+						c.relax();
 					}
 					for (var i = 0; i < lc.length; i++) {
 						var c = lc[i];
@@ -299,7 +299,7 @@
 				renderer = new THREE.WebGLRenderer({ antialias: true });
 				renderer.setPixelRatio( window.devicePixelRatio );
 				renderer.setSize( window.innerWidth, window.innerHeight );
-				renderer.setClearColor (0xe0e0ff);
+				renderer.setClearColor (0xA0A0F0);
 				document.body.appendChild( renderer.domElement );
 
 				// Define Camera
