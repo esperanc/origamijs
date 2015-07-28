@@ -29,7 +29,7 @@
 		<script src="./three.min.js"></script>
 		<script src="./TrackballControls.js"></script> 
 		<script src="./pvector.js"></script>
-		<script src="./halfedge.js"></script>
+		<script src="./oldhalfedge.js"></script>
 		<script src="./relax.js"></script>
 		<script src="./constraints.js"></script>
 
@@ -106,6 +106,7 @@
 				}
 				console.log (cutCount,snipCount);
 				return cutCount+snipCount > 0;
+
 			}
 
 			//
@@ -188,7 +189,7 @@
 			// Rebuilds all objects
 			// 
 			function resetObjects () {
-				hds = paperHalfedge (5,5,100);
+				hds = paperHalfedge (3,4,100);
 				objectsFromHds ();
 			}
 

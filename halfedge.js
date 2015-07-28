@@ -259,8 +259,8 @@ function assert (condition) {
 // Given a halfedge h, joins the two faces that h separates
 // Returns a halfedge for the new edge created.
 HalfedgeDS.prototype.joinFace = function (h) {
-	if (h.fac < 0 || hds.halfedge[h.opp].fac < 0) { throw "Can't join outside faces"; };
 	var self = this;
+	if (h.fac < 0 || self.halfedge[h.opp].fac < 0) { throw "Can't join outside faces"; };
 	var index_h = self.index(h);
 	var g = self.halfedge[h.opp];
 	var index_g = h.opp;
@@ -314,9 +314,9 @@ HalfedgeDS.prototype.splitVertex = function (h,g,v) {
 	var i = self.halfedge.length;
 	var j = i+1;
 	var h_i = new Halfedge(g.vtx,j,h.nxt,index_h,h.fac);
-	hds.halfedge.push (h_i);
+	self.halfedge.push (h_i);
 	var h_j = new Halfedge(new_vtx,i,g.nxt,index_g,g.fac);
-	hds.halfedge.push (h_j);
+	self.halfedge.push (h_j);
 	self.halfedge[h.nxt].prv = i;
 	self.halfedge[g.nxt].prv = j;
 	h.nxt = i;
@@ -415,6 +415,47 @@ function cutEdge (hds,he) {
 	var prev = hds.halfedge [he.prv];
 	var result = hds.splitFace (prev,he);
 	hds.toggleBorder (result, true);
+}
+
+//
+// Inserts a vertex in the middle of an edge splitting the neighbor faces.
+// Assumes that the neighbor faces are triangles. Returns a halfedge
+// pointing to the new vertex.
+//
+function subdivideEdge(hds,he) {
+	var ohe = hds.halfedge[he.opp];
+	var face1 = he.fac;
+	var face2 = ohe.fac;
+	var nhe = hds.halfedge[he.nxt];
+	var pohe = hds.halfedge[ohe.prv];
+	var a = hds.vertex[he.vtx];
+	var b = hds.vertex[ohe.vtx];
+	var newpos = a.add(b).mult(0.5);
+	var newhe = hds.splitVertex(he,pohe,newpos);
+	var onewhe = hds.halfedge[newhe.opp];
+	if (face1 >= 0) {
+		assert (onewhe.fac == face1);
+		hds.splitFace (hds.halfedge[onewhe.prv],nhe);
+	}
+	if (face2 >= 0) {
+		assert (newhe.fac == face2);
+		hds.splitFace (newhe, hds.halfedge[pohe.prv]);
+	}
+	return newhe;
+}
+
+//
+// Assumes that hds is a triangulation. Assuming that a-b is the
+// edge represented by halfedge he, and that c and d are the 
+// other triangle vertices on each side, joins the two triangles
+// and then splits the quad with edge c-d.
+//
+function flipEdge (hds,he) {
+	var ohe = hds.halfedge[he.opp];
+	var henxt = hds.halfedge[he.nxt];
+	var ohenxt = hds.halfedge[ohe.nxt];
+	hds.joinFace (he);
+	hds.splitFace (henxt,ohenxt);
 }
 
 // Checks if the given vertex in hds has two neighbor outside (border) faces.

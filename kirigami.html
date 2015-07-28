@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>Kirigami test</title>
+		<meta charset="utf-8">
+		<style>
+			body {
+				margin: 0px;
+				overflow: hidden;
+			}
+			.gui {
+				font-family: helvetica,sans;
+				font-size: 14px;
+				position: fixed;
+				padding: 5px;
+				top: 30px;
+				left: 30px;
+			}
+	
+			.guiButton {
+				font-family: helvetica,sans;
+				font-size: 12px;
+				border: 1px;
+				color: black;
+				padding: 3px;
+				margin: 5px;
+				background-color: white;
+			}
+		</style>
+	</head>
+	<body>
+		
+		<script src="./d3.min.js"></script>
+		<script src="./three.min.js"></script>
+		<script src="./TrackballControls.js"></script> 
+		<script src="./pvector.js"></script>
+		<script src="./halfedge.js"></script>
+		<script src="./relax.js"></script>
+		<script src="./constraints.js"></script>
+		<script src="./delaunay.js"></script> 
+		<script src="./numeric-1.2.6.min.js"></script> 
+		<script src="./papermodel.js"></script>
+
+		<script>
+
+			var camera, scene, renderer, controls, clock, trackballControls;
+			var paper, mesh, wireframe, saveJson, mouse, raycaster;
+			var relaxCount = 0;
+			
+			//
+			// Yields a different mesh material depending on the number of 
+			// the connected component of the triangle
+			// 
+			function meshMaterial (component) {
+				var colors = [0xffffff, 0xffaaff, 0xffffaa, 0xaaffff, 
+				              0xaaaaff, 0xffaaaa, 0xaaffaa]; 
+				return new THREE.MeshLambertMaterial({ 
+					color: colors[component % colors.length], 
+					shading: THREE.FlatShading,
+					side: THREE.DoubleSide,
+					polygonOffset: true,
+					polygonOffsetFactor: 1,
+					polygonOffsetUnits: 1
+				} );
+			} 
+
+			//
+			// Yields a proper material for drawing edges based on its type
+			//
+			function edgeMaterial (edge) {
+				var edgeTypeColor = { 
+					"Cut" : 0xff00000, 
+					"Ridge" : 0x0ffff00, 
+					"Valley" : 0x00ffff,
+					"Flat" : 0x0000ff,
+					"Border" : 0x777777
+				};
+				var material = new THREE.LineDashedMaterial({
+					color: edgeTypeColor[edge.type], 
+					scale:0.5, 
+					linewidth:3, 
+					dashSize: 2, 
+					gapSize: 0
+				});
+				return material;
+			}
+			
+			
+			//
+			// Selected is an array of indices. These are used both for
+			// the paper.edges data structure and for the wireframe edges
+			// used for drawing.
+			//
+			var selected = [];
+
+			// Returns a cylinder geometry where the bottom is at vstart,
+			// the top is at vend (both are THREE.Vector3 objects, 
+			// and the radius is r
+			function cylinder (vstart,vend,r) {
+				var distance = vstart.distanceTo(vend);
+				var position = vend.clone().add(vstart).divideScalar(2);
+				var cylinder = new THREE.CylinderGeometry(r,r,distance,10,10,true);
+			    var orientation = new THREE.Matrix4();//a new orientation matrix to offset pivot
+			    orientation.lookAt(vstart,vend,new THREE.Vector3(0,1,0));//look at destination
+			    var offsetRotation = new THREE.Matrix4();//a matrix to fix pivot rotation
+			    offsetRotation.makeRotationX(Math.PI/2);//rotate 90 degs on X
+			    orientation.multiply(offsetRotation);//combine orientation with rotation transformations
+			    cylinder.applyMatrix(orientation);
+			    var offsetPosition = new THREE.Matrix4();//a matrix to fix pivot position
+			    offsetPosition.makeTranslation (position.x, position.y, position.z);
+			    cylinder.applyMatrix(offsetPosition);
+			    return cylinder;
+			}
+
+
+			// 
+			// Creates a collection of cylinders from the paper edges
+			//
+			function createEdgeCylinders () {
+				edgeCylinders = new THREE.Object3D();
+				var m = new THREE.MeshLambertMaterial({color:0x0000ff});
+				for (var i in paper.edges) {
+					var e = paper.edges[i];
+					var g = cylinder(e.geometry.vertices[0], e.geometry.vertices[1],5);
+					edgeCylinders.add (new THREE.Mesh (g,m));
+				}
+			}
+
+			//
+			// Marks all selected edges as being of the given edge type
+			//
+			function labelEdge (edgeType) {
+				scene.remove(wireframe);
+				for (var i = 0; i < selected.length; i++) {
+					var j = selected[i];
+					var paperedge = paper.edges[j];
+					if (paperedge.type != "Border")	{
+						paperedge.type = edgeType;
+					}
+				}
+				wireframe = paper.wireframe(edgeMaterial);
+				scene.add(wireframe);
+				selected = [];
+			}
+
+			//
+			// Subdivides the selected edges
+			//
+			function subdivideSelected () {
+				scene.remove(wireframe);
+				selEdges = [];
+				for (var i = 0; i < selected.length; i++) {
+					var j = selected[i];
+					selEdges.push(paper.edges[j]);
+				}
+				paper.subdivideEdges(function (edge) {return selEdges.indexOf(edge) >= 0;});
+				wireframe = paper.wireframe(edgeMaterial);
+				scene.add(wireframe);
+				createEdgeCylinders();
+				selected = [];
+			}
+
+			//
+			// Subdivide all big edges
+			//
+			function subdivideModel () {
+				scene.remove(wireframe);
+				var maxlen = 0;
+				for (var i in paper.edges) {
+					var e = paper.edges[i];
+					if (e.type == "Flat" && e.len > maxlen) maxlen = e.len;
+				}
+				console.log ("Longest edge has size "+maxlen);
+				paper.subdivideEdges (function (edge) { return edge.len >= maxlen*0.75; });
+				wireframe = paper.wireframe(edgeMaterial);
+				scene.add(wireframe);
+				createEdgeCylinders();
+				selected = [];
+			}
+
+			//
+			// flips all non-delaunay flippable edges
+			//
+			function flipModel () {
+				scene.remove(wireframe);
+				paper.flipEdges ();
+				wireframe = paper.wireframe(edgeMaterial);
+				scene.add(wireframe);
+				createEdgeCylinders();
+				selected = [];
+			}
+
+			//
+			// Perform a laplacian smooth operation on vertices of the model
+			//
+			function smoothModel () {
+				paper.laplacianSmooth ();
+				resetScene();
+			}
+
+			function flattenModelComponents() {
+				paper.componentSVD ();
+				resetScene();
+			}
+
+			// 
+			// Deselects all edges 
+			//
+			function deselectAll() {
+				scene.remove(wireframe);
+				wireframe = paper.wireframe(edgeMaterial);
+				scene.add(wireframe);
+				selected = [];
+			}
+
+			//
+			// Set all edges as flat edges
+			//
+			function allFlat() {
+				selected = [];
+				for (var i = 0; i < wireframe.children.length; i++) {
+					selected.push(i);
+				}
+				labelEdge ("Flat");
+			}
+
+			// 
+			// Rebuilds all objects
+			// 
+			function resetObjects () {
+				if (wireframe != undefined) scene.remove(wireframe);
+				if (mesh != undefined) scene.remove (mesh);
+				if (saveJson != undefined) {
+					paper = jsonToPaperModel(saveJson);
+				} else {
+					paper = createPaperModel (4,4,100);
+				}
+				wireframe = paper.wireframe(edgeMaterial);
+				mesh = paper.mesh(meshMaterial);
+				createEdgeCylinders();
+				scene.add(wireframe,mesh);
+			}
+
+			// 
+			// Readds the paper object to the scene
+			// 
+			function resetScene () {
+				if (wireframe != undefined) scene.remove(wireframe);
+				if (mesh != undefined) scene.remove (mesh);
+				wireframe = paper.wireframe(edgeMaterial);
+				mesh = paper.mesh(meshMaterial);
+				var activeUi = getActiveMode();
+				//if (activeUi == "edge" || activeUi == "file") {
+					scene.add(mesh,wireframe);
+				//} else {
+				//	scene.add(mesh);
+				//}
+				createEdgeCylinders();
+			}
+
+			//
+			// Function that returns the active interaction mode
+			//
+			function getActiveMode () {
+				var activeGui;
+				var gui = d3.select ("div.gui");
+				gui.selectAll ("input.modeSelect").each (function () {
+					var sel = d3.select(this);
+					var value = sel.attr("value");
+					var checked = sel.property("checked");
+					if (checked) activeGui = value;
+					gui.select ("div."+value+"Gui").style("visibility", function () {
+						if (checked) return "visible";
+						return "hidden";
+					})
+				})
+				return activeGui;
+			}
+
+			//
+			// Initialize the Graphic User Interface
+			//
+			function initInterface() {
+				var gui = d3.select ("body").append("div").classed("gui",true);
+				// The edge group button
+				gui.append ("input")
+					.attr("class", "modeSelect")
+					.attr("type", "radio")
+					.attr("name", "guibox")
+					.attr("value", "edge")
+					.property("checked", true);
+				gui.append ("span").text(" Edge Editing");
+				// The edge buttons
+				var edgeGui = gui.append ("div").classed ("edgeGui", true);
+				var edgeButtonLabel = ["Cut", "Ridge", "Valley", "Flat", "Deselect All", "Subdivide", "All Flat"];
+				var edgeButtons = edgeGui.selectAll ("button.guiButton")
+					.data (edgeButtonLabel)
+					.enter()
+					.append ("button")
+					.attr ("class", "guiButton")
+					.text (function (d) { return d })
+					.on ("click", function (d, i) { 
+						if (i < 4) labelEdge (d);
+						else if (d == "Deselect All") deselectAll();
+						else if (d == "All Flat") allFlat();
+						else if (d == "Subdivide") subdivideSelected();
+					});
+
+				// The relaxation group button
+				gui.append ("input")
+					.attr("class", "modeSelect")
+					.attr("type", "radio")
+					.attr("name", "guibox")
+					.attr("value","anim");
+				gui.append ("span").text(" Relaxation");
+				// The relaxation buttons
+				var animGui = gui.append("div").classed("animGui",true).style("visibility", "hidden");
+				var animButtonLabel = ["Dihedral", "Flat", "Linear", "Auto-Relax"];
+				var animButtons = animGui.selectAll ("button.guiButton")
+					.data (animButtonLabel)
+					.enter()
+					.append ("button")
+					.attr ("class", "guiButton")
+					.text (function (d) { return d })
+					.on ("click", function (d, i) { 
+						if (d == "Dihedral") {
+							paper.relaxOneStep (5,1,0,0);
+							resetScene();
+						} else if (d == "Flat") {
+							paper.relaxOneStep (5,0,1,0);
+							resetScene();
+						} else if (d == "Linear") {
+							paper.relaxOneStep (5,0,1,0);
+							resetScene();
+						}
+						if (d == "Auto-Relax") {
+							relaxCount = 100;
+						}
+					});
+
+				// The model group button 
+				gui.append ("input")
+					.attr("class", "modeSelect")
+					.attr("type", "radio")
+					.attr("name", "guibox")
+					.attr("value","file");
+				gui.append ("span").text(" Model");
+
+				// The model buttons
+				var fileGui = gui.append("div").classed("fileGui",true).style("visibility", "hidden");
+				var fileList = fileGui.append ("label")
+					.attr ("class", "guiButton")
+					.text ("Upload")
+					.append("input")
+					.attr ({class:"guiButton",
+						    type: "file",
+							id: "files",
+							name: "files[]"})
+					.style ("display", "none")
+					.on ("change", function() {
+						loadFile (d3.event.target.files[0]);
+						// reset value so that another upload of the same file triggers the event
+						d3.select("input.guiButton").property("value", "");
+					});
+				var fileButtonLabel = ["Download", "Subdivide", "Smooth", "Flip", "SVD", "Reset"];
+				var fileButtons = fileGui.selectAll ("button.guiButton")
+					.data (fileButtonLabel)
+					.enter()
+					.append ("button")
+					.attr ("class", "guiButton")
+					.text (function (d) { return d })
+					.on ("click", function (d, i) { 
+						if (d == "Download") {
+							saveFile ();
+						} else if (d == "Reset"){
+							resetObjects();
+						} else if (d == "Subdivide"){
+							subdivideModel ();
+						} else if (d == "Smooth"){
+							smoothModel ();
+						} else if (d == "Flip"){
+							flipModel ();
+						} else if (d == "SVD"){
+							flattenModelComponents ();
+						} 
+					});			
+				// Callback for selecting one of the main interaction modes
+				gui.selectAll ("input.modeSelect").on("click", function (){
+					var activeGui = getActiveMode();
+					relaxCount = 0;
+					if (activeGui == "edge") {
+						deselectAll();
+						resetScene ();
+					}
+					if (activeGui == "anim") {
+						paper.computeConstraints();
+					}
+				})
+			}
+
+			// 
+			// Inits THREE and the rendering objects
+            //
+			function init() {
+
+				renderer = new THREE.WebGLRenderer({ antialias: true });
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.setClearColor (0xA0A0F0);
+				document.body.appendChild( renderer.domElement );
+
+				// Define Camera
+				camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 10000 );
+				camera.position.z = 1000;
+
+				// Define scene
+				scene = new THREE.Scene();
+
+				// Define lights
+				var ambientLight = new THREE.AmbientLight( 0x707070 );
+				scene.add( ambientLight );
+
+				var lights = [];
+				lights[0] = new THREE.PointLight( 0xaaaaaa, 1, 0 );
+				lights[1] = new THREE.PointLight( 0xaaaaaa, 1, 0 );
+				
+				lights[0].position.set( 0, 4000, 3000 );
+				lights[1].position.set( -1000, -2000, -3000 );
+
+				scene.add( lights[0] );
+				scene.add( lights[1] );
+
+				/* Define the objects to be viewed */
+				resetObjects();
+
+				/* Add a raycaster for picking objects */
+				raycaster = new THREE.Raycaster();
+
+				/* The clock and trackball */
+				clock = new THREE.Clock();
+				trackballControls = new THREE.TrackballControls(camera); 
+
+				// Callbacks
+				window.addEventListener( 'resize', onWindowResize, false );
+				mouse = new THREE.Vector2();
+				window.addEventListener( 'click', onWindowClick, false );
+				window.addEventListener( 'mousemove', onWindowMouseMove, false );
+
+			}
+
+			//
+			// Function called repeatedly to render each frame
+			//
+			function animate() {
+
+				var delta = clock.getDelta();
+     			trackballControls.update(delta);
+     			if (getActiveMode() == "anim" && relaxCount > 0) {
+     				paper.relaxOneStep();
+     				resetScene();
+     				relaxCount--;
+     			}
+
+				requestAnimationFrame( animate );
+				renderer.render( scene, camera );
+
+			}
+
+			//
+			// Window resize callback
+			//
+			function onWindowResize() {
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+			}
+
+			//
+			// Window mouse click callback
+			//
+			function onWindowClick ( event ) {
+				selectObject ();
+			}
+
+			//
+			// Mouse hovering callback. Picks and changes the look of an edge
+			// under the mouse
+			//
+			var highlighted;
+			function onWindowMouseMove ( event ) {
+
+				mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+				mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+
+				if ( highlighted != undefined ) {
+					wireframe.children[highlighted].material.gapSize = 0;
+					highlighted = undefined;
+				}
+
+				if (getActiveMode() != "edge") return;
+
+				raycaster.setFromCamera( mouse, camera );
+				var intersects = raycaster.intersectObjects( edgeCylinders.children );
+
+				if ( intersects.length > 0 ) {
+					var selectedCylinder = intersects[ 0 ].object;
+					for (var i in wireframe.children) {
+						if (edgeCylinders.children[i] == selectedCylinder) {
+							if (paper.edges[i].type != "Border") {
+								highlighted = i;
+								saveMaterial = wireframe.children[i].material;
+								wireframe.children[i].material.gapSize = 2;
+							} 
+						}
+					}
+				}
+			}
+
+			//
+			// Selects/deselects objects of the scene 
+			//
+			function selectObject () {
+
+				if (highlighted != undefined && getActiveMode() == "edge") { 
+					var sel = selected.indexOf(highlighted) 
+					if (sel >= 0) {
+						// Already selected: remove
+						selected.splice (sel,1);
+						wireframe.children[highlighted].material = edgeMaterial(paper.edges[highlighted]);
+					}
+					else {
+						// Include in selection
+						selected.push (highlighted);
+						wireframe.children[highlighted].material = new THREE.LineDashedMaterial({
+							color: 0x000000, 
+							scale:0.5, 
+							linewidth:5, 
+							dashSize: 2, 
+							gapSize: 0
+						});
+					}
+					wireframe.children[highlighted].material.gapSize = 2;
+				}
+			}
+
+
+			// Returns a PaperModel for a gridded paper with
+			// n times m cells, each of size s
+			function createPaperModel (n,m,s) {
+				function iv (i,j) { return i*m+j };
+				var fac = [], vtx = [];
+				var x0 = -(n-1)*s/2;
+				var y0 = -(m-1)*s/2
+				for (var i = 0; i < n; i++) {
+					for (var j = 0; j < m; j++) {
+						vtx.push (new PVector (x0+i*s,y0+j*s,0));
+						if (i > 0 && j > 0) {
+							fac.push ([iv(i-1,j-1), iv(i-1,j), iv(i,j)]);
+							fac.push ([iv(i-1,j-1), iv(i,j), iv(i,j-1)]);
+						}
+					}
+				}
+				return new PaperModel(fac,vtx);
+			}
+
+			//
+			// this is a function of two arguments: data and filename. It
+			// sends the data as a file to the user
+			//
+			var saveData = (function () {
+				var a = document.createElement("a");
+				document.body.appendChild(a);
+				a.style = "display: none";
+				return function (data, fileName) {
+				    var blob = new Blob([data], {
+				            type: "application/xml"
+				        }),
+				        url = window.URL.createObjectURL(blob);
+				    a.href = url;
+				    a.download = fileName;
+				    a.click();
+				    window.URL.revokeObjectURL(url);
+				};
+				}());
+
+			//
+			// Saves the current paper model onto a file
+			//
+			function saveFile () {
+				saveData (JSON.stringify(paperModelToJson(paper)), "paper.json");
+			}
+
+			// 
+			// Loads a paper model from a file 
+			//
+			function loadFile (fileobj) {
+
+				var reader = new FileReader();
+
+			    // Closure to capture the file information.
+    			reader.onload = (function (theFile) {
+        			return function (e) {
+			            var jsonText = e.target.result;
+			            saveJson = JSON.parse(jsonText);
+			            paper = jsonToPaperModel(saveJson);
+			            resetScene();
+			        };
+    			}) (fileobj);
+
+			    // Read in the image file as a data URL.
+			    reader.readAsText(fileobj);
+			}
+
+			initInterface();
+			init();
+			animate();
+
+		</script>
+
+	</body>
+</html>
