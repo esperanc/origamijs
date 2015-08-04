@@ -233,7 +233,7 @@
 				if (saveJson != undefined) {
 					paper = jsonToPaperModel(saveJson);
 				} else {
-					paper = createPaperModel (4,4,100);
+					paper = createPaperModel (3,3,200);
 				}
 				wireframe = paper.wireframe(edgeMaterial);
 				mesh = paper.mesh(meshMaterial);
@@ -330,7 +330,7 @@
 							paper.relaxOneStep (5,0,1,0);
 							resetScene();
 						} else if (d == "Linear") {
-							paper.relaxOneStep (5,0,1,0);
+							paper.relaxOneStep (5,0,0,1);
 							resetScene();
 						}
 						if (d == "Auto-Relax") {

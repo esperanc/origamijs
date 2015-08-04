@@ -22,6 +22,9 @@ function PaperModel(faces, vertices, originalVertices) {
 	// triangulation.
 	this.edges = [];
 	this.computeEdges();
+
+	// Compute the components
+	this.computeComponents();
 }
 
 // 
@@ -70,7 +73,7 @@ PaperModel.prototype.updateVectors = function () {
 // 
 PaperModel.prototype.mesh = function (fmaterial) {
 
-	this.computeComponents();
+	//this.computeComponents();
 
 	// surface is an array of THREE.Geometry object, each representing
 	// a component of the paper surface
@@ -173,7 +176,6 @@ function svd (points) {
 	}
 	// Compute the SVD
 	var r = numeric.svd(m);
-	console.log (r);
 	// The normal of the best fitting plane
 	// is the third column of the V matrix
 	var normal = new PVector (r.V[0][2],r.V[1][2],r.V[2][2]);
@@ -273,7 +275,6 @@ PaperModel.prototype.computeComponents = function () {
 		groupCount++;
 	});
 	console.log (groupCount+" components");
-	console.log (self.faceGroup);
 	self.groupCount = groupCount;
 }
 
@@ -340,6 +341,7 @@ PaperModel.prototype.processCuts = function () {
 		var i = vtxToSnip[0];
 		vtxToSnip.splice(0,1);
 		while (newvtx_h = snipVertex(this.hds,i)) {
+			this.originalVertices[newvtx_h.vtx] = this.hds.vertex[newvtx_h.vtx].clone();
 			snipCount++;
 			if (vtxToSnip.indexOf(newvtx_h.vtx) < 0) vtxToSnip.push(newvtx_h.vtx);
 		}
@@ -378,8 +380,10 @@ PaperModel.prototype.computeConstraints = function () {
 		linsum += constraint.discrepancy();
 		this.lc.push (constraint);
 		if (he.fac >= 0 && ohe.fac >= 0) {
-			var v2 = this.hds.vertex[this.hds.halfedge[he.nxt].vtx];
-			var v3 = this.hds.vertex[this.hds.halfedge[ohe.nxt].vtx];
+			var iv2 = this.hds.halfedge[he.nxt].vtx;
+			var v2 = this.hds.vertex[iv2];
+			var iv3 = this.hds.halfedge[ohe.nxt].vtx;
+			var v3 = this.hds.vertex[iv3];
 			var angle = (e.type == "Ridge") ? Math.PI / 2 :
 						(e.type == "Valley") ? -Math.PI / 2:
 						0;
@@ -389,10 +393,7 @@ PaperModel.prototype.computeConstraints = function () {
 				this.fc.push (constraint);
 				// Add a linear constraint between the opposite vertices of
 				// a flat dihedral constraint
-                var tmp = [v0.clone(),v1.clone(),v2.clone(),v3.clone()];
-                var tmpdc = new DihedralConstraint (tmp[0],tmp[1],tmp[2],tmp[3],0);
-                tmpdc.relax(1);
-                constraint = new LinearConstraint(v2,v3,tmp[2].sub(tmp[3]).mag());
+                constraint = new LinearConstraint(v2,v3,this.vertexDistance(iv2,iv3));
                 linsum += constraint.discrepancy();
                 this.lc.push (constraint);
             } else {
@@ -451,10 +452,10 @@ PaperModel.prototype.relaxOneStep = function (nrepeat, ndihedral, nflat, nlinear
 				fc[i].relax(0.5);
 			}
 		}
-		sortByDiscrepancy(lc);		
+		var s = sortByDiscrepancy(lc);	
 		for (var j = 0; j < nlinear; j++) {
 			for (var i = 0; i < lc.length; i++) {
-				lc[i].relax();
+				lc[i].relax(0.5);
 			}
 		}
 	}
